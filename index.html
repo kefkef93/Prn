@@ -216,8 +216,10 @@ function nextDeparture(hh, mm) {
 }
 
 async function checkRoute(route, cache, departureISO) {
-  const fromId = await findStationId(route.from, cache);
-  const toId = await findStationId(route.to, cache);
+  const [fromId, toId] = await Promise.all([
+    findStationId(route.from, cache),
+    findStationId(route.to, cache)
+  ]);
   let url = API + '/journeys?from=' + fromId + '&to=' + toId + '&results=3&stopovers=false';
   if (departureISO) url += '&departure=' + encodeURIComponent(departureISO);
   const res = await fetchWithTimeout(url);
@@ -402,25 +404,23 @@ async function runCheck() {
 
     const returnDeparture = nextDeparture(16, 40);
 
-    const resultsOut = [];
-    for (const route of ROUTES_OUT) {
-      try {
-        resultsOut.push(await checkRoute(route, cache));
-      } catch (e) {
+    const outPromises = ROUTES_OUT.map(route =>
+      checkRoute(route, cache).catch(e => {
         errors.push('Hinfahrt ' + route.from.split(',')[0] + ': ' + e.message);
-        resultsOut.push(demoData(route, 5, 40));
-      }
-    }
-
-    const resultsReturn = [];
-    for (const route of ROUTES_RETURN) {
-      try {
-        resultsReturn.push(await checkRoute(route, cache, returnDeparture));
-      } catch (e) {
+        return demoData(route, 5, 40);
+      })
+    );
+    const returnPromises = ROUTES_RETURN.map(route =>
+      checkRoute(route, cache, returnDeparture).catch(e => {
         errors.push('Rückfahrt ' + route.to.split(',')[0] + ': ' + e.message);
-        resultsReturn.push(demoData(route, 16, 40));
-      }
-    }
+        return demoData(route, 16, 40);
+      })
+    );
+
+    const [resultsOut, resultsReturn] = await Promise.all([
+      Promise.all(outPromises),
+      Promise.all(returnPromises)
+    ]);
 
     if (errors.length) {
       banner.classList.add('show', 'demo');
